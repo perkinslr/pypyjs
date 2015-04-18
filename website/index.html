@@ -58,8 +58,7 @@
 
   </div>
 
-  <script src="js/pypy.js-0.2.0/lib/Promise.min.js" type="text/javascript" charset="utf-8"></script>
-  <script src="js/pypy.js-0.2.0/lib/pypy.js" type="text/javascript" charset="utf-8"></script>
+  
   <script src="js/jquery.min.js" type="text/javascript" charset="utf-8"></script>
   <script src="js/jquery-migrate-1.2.1.min.js" type="text/javascript" charset="utf-8"></script>
   <script src="js/jqconsole.min.js" type="text/javascript" charset="utf-8"></script>
@@ -67,47 +66,95 @@
   <script>
     $(function () {
       // Global vars, for easy debugging in console.
+      webSockets = {};
       window.jqconsole = $('#console').jqconsole('', '>>> ');
-      window.vm = new PyPyJS();
-      // Send all VM output to the console.
-      vm.stdout = vm.stderr = function(data) {
-        jqconsole.Write(data, 'jqconsole-output');
-      }
-      // Display a helpful message and twiddle thumbs as it loads.
-      vm.stdout('Loading PyPy.js.\n')
-      vm.stdout('It\'s big, so this might take a while...\n\n')
-      vm.ready.then(function() {
-        jqconsole.Reset();
-        vm.stdout('Welcome to PyPy.js!\n')
-        // Create an 'InteractiveConsole' to simulate the python shell.
-        vm.eval('import code').then(function() {
-          vm.eval('c = code.InteractiveConsole()').then(function() {
-            // Prompt for input, send it to the console, rinse, repeat.
-            window.doPrompt = function () {
-              jqconsole.Prompt(true, function (input) {
-                var code = input.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-                code = 'r = c.push(\'' + code + '\')';
-                vm.eval(code).then(function() {
-                  return vm.get('r').then(function(r) {
-                    // r==1 means that it's a multi-line definition,
-                    // so change the prompt accordingly.
-                    if (r) {
-                      jqconsole.SetPromptLabel("... ");
-                    } else {
-                      jqconsole.SetPromptLabel(">>> ");
-                    }
-                    setTimeout(doPrompt, 0);
-                  });
-                });
-              });
-            };
+      var worker = new Worker('threadpypy.js');
+      worker.postMessage({cmd:'hello'});
+      worker.addEventListener('message', function(e){
+        var data=e.data;
+        switch (data.cmd){
+          case 'stdout':
+            jqconsole.Write(data.msg, 'jqconsole-output');
+            break;
+          case 'reset':
+            jqconsole.Reset();
+            break;
+          case 'setPrompt':
+            jqconsole.SetPromptLabel(data.data);
             doPrompt();
-          });
-        });
-      },
-      function(err) {
-        jqconsole.Write('ERROR: ' + err);
+            break;
+          case 'echo':
+            break;
+          case 'alert':
+            alert(data.msg);
+            break;
+          case 'ready':
+            doPrompt();
+            break;
+          case 'create WebSocket':
+            var this_socket = new WebSocket(data.server);
+            webSockets[data.id]=this_socket;
+            this_socket.onmessage=function(e){
+              worker.postMessage({cmd:'message from socket', data:e.data, id:data.id});
+            }
+            this_socket.onopen=function(e){
+              worker.postMessage({cmd:'socket opened', id:data.id});
+            }
+            this_socket.onclose=function(e){
+              worker.postMessage({cmd:'socket closed', id:data.id});
+            }
+            break;
+          case 'data for socket':
+            var this_socket = webSockets[data.id];
+            if (this_socket.readyState==1){
+              this_socket.send(data.data);
+            }
+            else if (this_socket.readyState==0){
+              var ooo=this_Socket.onopen;
+              this_socket.onopen=function(e){
+                ooo(e);
+                this_socket.send(data.data);
+              }
+            }
+            else{
+              worker.postMessage({cmd:'socket send failed', id:data.id, reason:'socket closed'});
+            }
+            break;
+          case 'fork':
+            var thisWorker = new Worker('subprocesspypy.js');
+            thisWorker.postMessage({cmd:'subprocess upstart', data:data.data, id:data.id});
+            webSockets[data.id]=thisWorker;
+            thisWorker.addEventListener('message', function(e1){
+              var d1 = e1.data;
+              switch (d1.cmd){
+                case 'stdout':
+                  worker.postMessage({cmd:'subprocess stdout', id:data.id, msg:d1.msg});
+                  break;
+                case 'stderr':
+                  worker.postMessage({cmd:'subprocess stderr', id:data.id, msg:d1.msg});
+                  break;
+                case 'exit':
+                  worker.postMessage({cmd:'subprocess exit', id:data.id, code:d1.code});
+                  break;
+              }
+            });
+            break;
+          case 'subprocess stdin':
+            webSockets[data.id].postMessage({cmd:'subprocess stdin', msg:data.msg});
+            break;
+        }
+        
       });
+      window.doPrompt = function () {
+          jqconsole.Prompt(true, function (input) {
+            var code = input.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+            code = 'r = c.push(\'\'\'' + code + '\'\'\')';
+            worker.postMessage({cmd:'code', code:code});
+            
+            }
+          )
+      };
+      
     });
   </script>
 

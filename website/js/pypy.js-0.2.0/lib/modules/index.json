@@ -6000,6 +6000,10 @@
         "_struct._clearcache"
       ]
     }, 
+    "subprocess": {
+      "file": "subprocess.py", 
+      "imports": []
+    }, 
     "symbol": {
       "file": "symbol.py", 
       "imports": [

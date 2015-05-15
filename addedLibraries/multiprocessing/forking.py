@@ -46,11 +46,12 @@ __all__ = ['Popen', 'assert_spawning', 'exit', 'duplicate', 'close', 'ForkingPic
 #
 
 def assert_spawning(self):
-    if not Popen.thread_is_spawning():
-        raise RuntimeError(
-            '%s objects should only be shared between processes'
-            ' through inheritance' % type(self).__name__
-            )
+    #~ if not Popen.thread_is_spawning():
+        #~ raise RuntimeError(
+            #~ '%s objects should only be shared between processes'
+            #~ ' through inheritance' % type(self).__name__
+            #~ )
+    pass
 
 #
 # Try making some callable types picklable
@@ -116,7 +117,7 @@ if sys.platform != 'win32':
     #
 
     class Popen(object):
-
+        isSpawning = False
         def __init__(self, process_obj, isChild=False):
             sys.stdout.flush()
             sys.stderr.flush()
@@ -131,7 +132,9 @@ if sys.platform != 'win32':
                 sys.stderr.flush()
                 os._exit(code)
             else:
+                Popen.isSpawning = True
                 self.pid = js.fork(process_obj)
+                Popen.isSpawning = False
         def poll(self, flag=os.WNOHANG):
             if self.returncode is None:
                 while True:
@@ -176,10 +179,12 @@ if sys.platform != 'win32':
                 except OSError, e:
                     if self.wait(timeout=0.1) is None:
                         raise
-
+        @staticmethod
+        def duplicate_for_child(handle):
+            return os.dup(handle)
         @staticmethod
         def thread_is_spawning():
-            return False
+            return Popen.isSpawning
 
 #
 # Prepare current process

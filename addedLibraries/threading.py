@@ -382,8 +382,8 @@ class _Condition(_Verbose):
         variable; it is a no-op if no threads are waiting.
 
         """
-        if not self._is_owned():
-            raise RuntimeError("cannot notify on un-acquired lock")
+#        if not self._is_owned():
+#            raise RuntimeError("cannot notify on un-acquired lock")
         __waiters = self.__waiters
         waiters = __waiters[:n]
         if not waiters:

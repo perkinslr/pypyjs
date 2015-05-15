@@ -318,6 +318,6 @@ del _MainProcess
 
 _exitcode_to_name = {}
 
-for name, signum in signal.__dict__.items():
-    if name[:3]=='SIG' and '_' not in name:
-        _exitcode_to_name[-signum] = name
+# for name, signum in signal.__dict__.items():
+#     if name[:3]=='SIG' and '_' not in name:
+#         _exitcode_to_name[-signum] = name

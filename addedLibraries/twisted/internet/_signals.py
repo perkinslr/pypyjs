@@ -50,6 +50,7 @@ def installHandler(fd):
         received.
     @type fd: C{int}
     """
+    return;
     if fd == -1:
         signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     else:

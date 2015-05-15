@@ -8,29 +8,32 @@ import os
 import StringIO
 import time
 
-rawread=os.read
-rawwrite=os.write
 
-def read(socknum, length):
-    if socknum in sockets:
-        return sockets[socknum].recv(length)
-    return rawread(socknum, length)
 
-def write(socknum, msg):
-    if socknum in sockets:
-        return sockets[socknum].send(msg)
-    return rawread(socknum, msg)
-
-sockets={}
+sockets=os.fileNumbers
 class error(Exception): pass
+
+
+class _fileobject(file):
+    def __init__(self, sock):
+        self._sock=sock
+    def read(self, length):
+        return self._sock.recv(length)
+    def write(self, msg):
+        return self._sock.send(msg)
+    def pullFromJS(self):
+        return self._sock.pullFromJS()
 
 class _socket(object):
     '''socket implementation using websockets'''
     def __init__(self, *_):
-        self._fileno=3+len(sockets)
-        sockets[self.fileno()]=self
+        self._fileno=len(sockets)
+        os.fileNumbers.append(self.makefile())
         self.timeout=None
         self.closed=False
+    @property
+    def ready(self):
+        return hasattr(self, '_sock') and self._sock.ready
     def fileno(self):
         return self._fileno
     def accept(self):
@@ -44,7 +47,6 @@ class _socket(object):
         self.closed=True
     def connect(self, (address, port)):
         self.connection_info=address,port
-        
         self._stringIO=StringIO.StringIO()
         self._sock = js.globals['socketConnect']("ws://"+address+':'+str(port))
         def onmsg(msg):
@@ -60,14 +62,8 @@ class _socket(object):
     def gettimeout(self):
         return self.timeout
     def makefile(self):
-        class _fileobject(File):
-            @classmethod
-            def read(cls, length):
-                return self.recv(length)
-            @classmethod
-            def write(cls, msg):
-                return self.send(msg)
-        return _fileobject()
+
+        return _fileobject(self)
     proto=0
     def pullFromJS(self):
         #while self._sock.queue.length:

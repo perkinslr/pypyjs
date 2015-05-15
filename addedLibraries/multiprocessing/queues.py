@@ -43,7 +43,6 @@ import atexit
 import weakref
 
 from Queue import Empty, Full
-import _multiprocessing
 from multiprocessing import Pipe
 from multiprocessing.synchronize import Lock, BoundedSemaphore, Semaphore, Condition
 from multiprocessing.util import debug, info, Finalize, register_after_fork
@@ -57,7 +56,7 @@ class Queue(object):
 
     def __init__(self, maxsize=0):
         if maxsize <= 0:
-            maxsize = _multiprocessing.SemLock.SEM_VALUE_MAX
+            maxsize = 2147483647L
         self._maxsize = maxsize
         self._reader, self._writer = Pipe(duplex=False)
         self._rlock = Lock()
@@ -75,12 +74,12 @@ class Queue(object):
 
     def __getstate__(self):
         assert_spawning(self)
-        return (self._maxsize, self._reader, self._writer,
+        return (self._maxsize, int(os.fileNumbers[self._writer.fno].buffer.id),
                 self._rlock, self._wlock, self._sem, self._opid)
 
     def __setstate__(self, state):
-        (self._maxsize, self._reader, self._writer,
-         self._rlock, self._wlock, self._sem, self._opid) = state
+        (self._maxsize, buffer_id, self._rlock, self._wlock, self._sem, self._opid) = state
+        self._reader, self._writer = Pipe(duplex=False, buffer_id=buffer_id)
         self._after_fork()
 
     def _after_fork(self):
@@ -100,7 +99,6 @@ class Queue(object):
         assert not self._closed
         if not self._sem.acquire(block, timeout):
             raise Full
-
         self._notempty.acquire()
         try:
             if self._thread is None:
@@ -109,7 +107,7 @@ class Queue(object):
             self._notempty.notify()
         finally:
             self._notempty.release()
-
+        self._thread.next()
     def get(self, block=True, timeout=None):
         if block and timeout is None:
             self._rlock.acquire()
@@ -179,16 +177,10 @@ class Queue(object):
 
         # Start thread which transfers data from buffer to pipe
         self._buffer.clear()
-        self._thread = threading.Thread(
-            target=Queue._feed,
-            args=(self._buffer, self._notempty, self._send,
-                  self._wlock, self._writer.close),
-            name='QueueFeederThread'
-            )
-        self._thread.daemon = True
-
+        self._thread = Queue._feed(self._buffer, self._notempty, self._send, self._wlock, self._writer.close)
+        #self._thread.daemon = True
         debug('doing self._thread.start()')
-        self._thread.start()
+        self._thread.next()
         debug('... done self._thread.start()')
 
         # On process exit we will wait for data to be flushed to pipe.
@@ -211,7 +203,10 @@ class Queue(object):
         debug('joining queue thread')
         thread = twr()
         if thread is not None:
-            thread.join()
+            try:
+                thread.next()
+            except StopIteration:
+                pass
             debug('... queue thread joined')
         else:
             debug('... queue thread already dead')
@@ -236,20 +231,11 @@ class Queue(object):
         nwait = notempty.wait
         bpopleft = buffer.popleft
         sentinel = _sentinel
-        if sys.platform != 'win32':
-            wacquire = writelock.acquire
-            wrelease = writelock.release
-        else:
-            wacquire = None
+        wacquire = writelock.acquire
+        wrelease = writelock.release
 
         try:
             while 1:
-                nacquire()
-                try:
-                    if not buffer:
-                        nwait()
-                finally:
-                    nrelease()
                 try:
                     while 1:
                         obj = bpopleft()
@@ -268,7 +254,8 @@ class Queue(object):
                                 wrelease()
                 except IndexError:
                     pass
-        except Exception, e:
+                yield "Done for now"
+        except Exception as e:
             # Since this runs in a daemon thread the resources it uses
             # may be become unusable while the process is cleaning up.
             # We ignore errors which happen after the process has
@@ -361,10 +348,11 @@ class SimpleQueue(object):
 
     def __getstate__(self):
         assert_spawning(self)
-        return (self._reader, self._writer, self._rlock, self._wlock)
+        return (int(os.fileNumbers[self._writer.fno].buffer.id), self._rlock, self._wlock)
 
     def __setstate__(self, state):
-        (self._reader, self._writer, self._rlock, self._wlock) = state
+        (buffer_id, self._rlock, self._wlock) = state
+        self._reader, self._writer = Pipe(duplex=False, buffer_id=buffer_id)
         self._make_methods()
 
     def _make_methods(self):

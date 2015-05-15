@@ -99,12 +99,12 @@ def Manager():
     m.start()
     return m
 
-def Pipe(duplex=True):
+def Pipe(duplex=True, buffer_id = None):
     '''
     Returns two connection object connected by a pipe
     '''
     from multiprocessing.connection import Pipe
-    return Pipe(duplex)
+    return Pipe(duplex, buffer_id)
 
 def cpu_count():
     '''

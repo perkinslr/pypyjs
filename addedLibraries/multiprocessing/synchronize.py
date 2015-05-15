@@ -42,7 +42,7 @@ import sys
 
 from time import time as _time, sleep as _sleep
 
-import _multiprocessing
+#~ import _multiprocessing
 from multiprocessing.process import current_process
 from multiprocessing.util import Finalize, register_after_fork, debug
 from multiprocessing.forking import assert_spawning, Popen
@@ -50,29 +50,32 @@ from multiprocessing.forking import assert_spawning, Popen
 # Try to import the mp.synchronize module cleanly, if it fails
 # raise ImportError for platforms lacking a working sem_open implementation.
 # See issue 3770
-try:
-    from _multiprocessing import SemLock
-except (ImportError):
-    raise ImportError("This platform lacks a functioning sem_open" +
-                      " implementation, therefore, the required" +
-                      " synchronization primitives needed will not" +
-                      " function, see issue 3770.")
+#~ try:
+    #~ from _multiprocessing import SemLock
+#~ except (ImportError):
+    #~ raise ImportError("This platform lacks a functioning sem_open" +
+                      #~ " implementation, therefore, the required" +
+                      #~ " synchronization primitives needed will not" +
+                      #~ " function, see issue 3770.")
 
 #
 # Constants
 #
 
 RECURSIVE_MUTEX, SEMAPHORE = range(2)
-SEM_VALUE_MAX = _multiprocessing.SemLock.SEM_VALUE_MAX
-
+SEM_VALUE_MAX = 2147483647L
 #
 # Base class for semaphores and mutexes; wraps `_multiprocessing.SemLock`
 #
+import js
 
 class SemLock(object):
 
     def __init__(self, kind, value, maxvalue):
-        sl = self._semlock = _multiprocessing.SemLock(kind, value, maxvalue)
+        sl = self._semlock = js.eval('new Semaphore(1);')
+        sl.kind=kind
+        sl.value=0
+        sl.maxvalue=maxvalue
         debug('created semlock with handle %s' % sl.handle)
         self._make_methods()
 
@@ -80,7 +83,7 @@ class SemLock(object):
             def _after_fork(obj):
                 obj._semlock._after_fork()
             register_after_fork(self, _after_fork)
-
+    
     def _make_methods(self):
         self.acquire = self._semlock.acquire
         self.release = self._semlock.release
@@ -97,7 +100,9 @@ class SemLock(object):
         return (Popen.duplicate_for_child(sl.handle), sl.kind, sl.maxvalue)
 
     def __setstate__(self, state):
-        self._semlock = _multiprocessing.SemLock._rebuild(*state)
+        self._semlock = js.eval('new Semaphore(1);')
+        self._semlock.value=state[1]
+        self._semlock.maxvalue=state[2]
         debug('recreated blocker with handle %r' % state[0])
         self._make_methods()
 

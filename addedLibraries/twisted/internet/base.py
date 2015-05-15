@@ -1140,21 +1140,22 @@ class _SignalReactorMixin(object):
         """
         Install the signal handlers for the Twisted event loop.
         """
-        try:
-            import signal
-        except ImportError:
-            log.msg("Warning: signal module unavailable -- "
-                    "not installing signal handlers.")
-            return
-
-        if signal.getsignal(signal.SIGINT) == signal.default_int_handler:
-            # only handle if there isn't already a handler, e.g. for Pdb.
-            signal.signal(signal.SIGINT, self.sigInt)
-        signal.signal(signal.SIGTERM, self.sigTerm)
-
-        # Catch Ctrl-Break in windows
-        if hasattr(signal, "SIGBREAK"):
-            signal.signal(signal.SIGBREAK, self.sigBreak)
+        return
+        #~ try:
+            #~ import signal
+        #~ except ImportError:
+            #~ log.msg("Warning: signal module unavailable -- "
+                    #~ "not installing signal handlers.")
+            #~ return
+#~ 
+        #~ if signal.getsignal(signal.SIGINT) == signal.default_int_handler:
+            #~ # only handle if there isn't already a handler, e.g. for Pdb.
+            #~ signal.signal(signal.SIGINT, self.sigInt)
+        #~ signal.signal(signal.SIGTERM, self.sigTerm)
+#~ 
+        #~ # Catch Ctrl-Break in windows
+        #~ if hasattr(signal, "SIGBREAK"):
+            #~ signal.signal(signal.SIGBREAK, self.sigBreak)
 
 
     def startRunning(self, installSignalHandlers=True):

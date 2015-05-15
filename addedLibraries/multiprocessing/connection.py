@@ -42,12 +42,13 @@ import time
 import tempfile
 import itertools
 
-import _multiprocessing
+
 from multiprocessing import current_process, AuthenticationError
 from multiprocessing.util import get_temp_dir, Finalize, sub_debug, debug
 from multiprocessing.forking import duplicate, close
 
-
+class ConnectionException(Exception):
+    pass
 #
 #
 #
@@ -65,9 +66,6 @@ if hasattr(socket, 'AF_UNIX'):
     default_family = 'AF_UNIX'
     families += ['AF_UNIX']
 
-if sys.platform == 'win32':
-    default_family = 'AF_PIPE'
-    families += ['AF_PIPE']
 
 
 def _init_timeout(timeout=CONNECTION_TIMEOUT):
@@ -178,67 +176,24 @@ def Client(address, family=None, authkey=None):
     return c
 
 
+
+
+
 if sys.platform != 'win32':
 
-    def Pipe(duplex=True):
+    def Pipe(duplex=True, buffer_id=None):
+        import _multiprocessing
         '''
         Returns pair of connection objects at either end of a pipe
         '''
         if duplex:
-            s1, s2 = socket.socketpair()
-            s1.setblocking(True)
-            s2.setblocking(True)
-            c1 = _multiprocessing.Connection(os.dup(s1.fileno()))
-            c2 = _multiprocessing.Connection(os.dup(s2.fileno()))
-            s1.close()
-            s2.close()
-        else:
-            fd1, fd2 = os.pipe()
-            c1 = _multiprocessing.Connection(fd1, writable=False)
-            c2 = _multiprocessing.Connection(fd2, readable=False)
+            raise ConnectionException('can\'t do duplex')
+        fd1, fd2 = os.pipe(buffer_id)
+        c1 = _multiprocessing.Connection(fd1, writeable=False)
+        c2 = _multiprocessing.Connection(fd2, readable=False)
 
         return c1, c2
 
-else:
-    from _multiprocessing import win32
-
-    def Pipe(duplex=True):
-        '''
-        Returns pair of connection objects at either end of a pipe
-        '''
-        address = arbitrary_address('AF_PIPE')
-        if duplex:
-            openmode = win32.PIPE_ACCESS_DUPLEX
-            access = win32.GENERIC_READ | win32.GENERIC_WRITE
-            obsize, ibsize = BUFSIZE, BUFSIZE
-        else:
-            openmode = win32.PIPE_ACCESS_INBOUND
-            access = win32.GENERIC_WRITE
-            obsize, ibsize = 0, BUFSIZE
-
-        h1 = win32.CreateNamedPipe(
-            address, openmode,
-            win32.PIPE_TYPE_MESSAGE | win32.PIPE_READMODE_MESSAGE |
-            win32.PIPE_WAIT,
-            1, obsize, ibsize, win32.NMPWAIT_WAIT_FOREVER, win32.NULL
-            )
-        h2 = win32.CreateFile(
-            address, access, 0, win32.NULL, win32.OPEN_EXISTING, 0, win32.NULL
-            )
-        win32.SetNamedPipeHandleState(
-            h2, win32.PIPE_READMODE_MESSAGE, None, None
-            )
-
-        try:
-            win32.ConnectNamedPipe(h1, win32.NULL)
-        except WindowsError, e:
-            if e.args[0] != win32.ERROR_PIPE_CONNECTED:
-                raise
-
-        c1 = _multiprocessing.PipeConnection(h1, writable=duplex)
-        c2 = _multiprocessing.PipeConnection(h2, readable=duplex)
-
-        return c1, c2
 
 #
 # Definitions for connections based on sockets
@@ -270,6 +225,7 @@ class SocketListener(object):
             self._unlink = None
 
     def accept(self):
+        import _multiprocessing
         while True:
             try:
                 s, self._last_accepted = self._socket.accept()
@@ -294,6 +250,7 @@ def SocketClient(address):
     '''
     Return a connection object connected to the socket given by `address`
     '''
+    import _multiprocessing
     family = getattr(socket, address_type(address))
     t = _init_timeout()
 
@@ -321,84 +278,6 @@ def SocketClient(address):
 #
 # Definitions for connections based on named pipes
 #
-
-if sys.platform == 'win32':
-
-    class PipeListener(object):
-        '''
-        Representation of a named pipe
-        '''
-        def __init__(self, address, backlog=None):
-            self._address = address
-            handle = win32.CreateNamedPipe(
-                address, win32.PIPE_ACCESS_DUPLEX,
-                win32.PIPE_TYPE_MESSAGE | win32.PIPE_READMODE_MESSAGE |
-                win32.PIPE_WAIT,
-                win32.PIPE_UNLIMITED_INSTANCES, BUFSIZE, BUFSIZE,
-                win32.NMPWAIT_WAIT_FOREVER, win32.NULL
-                )
-            self._handle_queue = [handle]
-            self._last_accepted = None
-
-            sub_debug('listener created with address=%r', self._address)
-
-            self.close = Finalize(
-                self, PipeListener._finalize_pipe_listener,
-                args=(self._handle_queue, self._address), exitpriority=0
-                )
-
-        def accept(self):
-            newhandle = win32.CreateNamedPipe(
-                self._address, win32.PIPE_ACCESS_DUPLEX,
-                win32.PIPE_TYPE_MESSAGE | win32.PIPE_READMODE_MESSAGE |
-                win32.PIPE_WAIT,
-                win32.PIPE_UNLIMITED_INSTANCES, BUFSIZE, BUFSIZE,
-                win32.NMPWAIT_WAIT_FOREVER, win32.NULL
-                )
-            self._handle_queue.append(newhandle)
-            handle = self._handle_queue.pop(0)
-            try:
-                win32.ConnectNamedPipe(handle, win32.NULL)
-            except WindowsError, e:
-                # ERROR_NO_DATA can occur if a client has already connected,
-                # written data and then disconnected -- see Issue 14725.
-                if e.args[0] not in (win32.ERROR_PIPE_CONNECTED,
-                                     win32.ERROR_NO_DATA):
-                    raise
-            return _multiprocessing.PipeConnection(handle)
-
-        @staticmethod
-        def _finalize_pipe_listener(queue, address):
-            sub_debug('closing listener with address=%r', address)
-            for handle in queue:
-                close(handle)
-
-    def PipeClient(address):
-        '''
-        Return a connection object connected to the pipe given by `address`
-        '''
-        t = _init_timeout()
-        while 1:
-            try:
-                win32.WaitNamedPipe(address, 1000)
-                h = win32.CreateFile(
-                    address, win32.GENERIC_READ | win32.GENERIC_WRITE,
-                    0, win32.NULL, win32.OPEN_EXISTING, 0, win32.NULL
-                    )
-            except WindowsError, e:
-                if e.args[0] not in (win32.ERROR_SEM_TIMEOUT,
-                                     win32.ERROR_PIPE_BUSY) or _check_timeout(t):
-                    raise
-            else:
-                break
-        else:
-            raise
-
-        win32.SetNamedPipeHandleState(
-            h, win32.PIPE_READMODE_MESSAGE, None, None
-            )
-        return _multiprocessing.PipeConnection(h)
-
 #
 # Authentication stuff
 #

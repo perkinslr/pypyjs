@@ -1,10 +1,9 @@
 import time
 import _socket
-
+import os
 
 
 def select(readlist, writelist, xlist, timeout=None):
-    print 7
     readlist=list(readlist)
     writelist=list(writelist)
     xlist=list(xlist)
@@ -20,10 +19,14 @@ def select(readlist, writelist, xlist, timeout=None):
                 fno=i.fileno()
             if fno<3:
                 continue
-            so=_socket.sockets.get(fno,None)
-            if so:
+            if fno >= len(os.fileNumbers):
+                continue
+            so=os.fileNumbers[fno]
+            if isinstance(so, _socket._fileobject):
                 if so.pullFromJS():
-                    print 26, so._stringIO.getvalue()
+                    read_out.append(i)
+            else:
+                if getattr(so, 'buffer', None) and so.buffer.buffer:
                     read_out.append(i)
         for i in (xlist):
             if isinstance(i, int):
@@ -32,8 +35,10 @@ def select(readlist, writelist, xlist, timeout=None):
                 fno=i.fileno()
             if fno<3:
                 continue
-            so=_socket.sockets.get(fno,None)
-            if so:
+            if fno >= len(os.fileNumbers):
+                continue
+            so=os.fileNumbers[fno]
+            if isinstance(so, _socket._socket):
                 if so._sock.closed:
                     xlist_out.append(i)
         for i in (writelist):
@@ -41,15 +46,14 @@ def select(readlist, writelist, xlist, timeout=None):
                 fno=i
             else:
                 fno=i.fileno()
-            so=_socket.sockets.get(fno,None)
-            if so:
+            if fno >= len(os.fileNumbers):
+                continue
+            so=os.fileNumbers[fno]
+            if isinstance(so, _socket._fileobject):
                 if not so._sock.ready:
                     continue
             write_out.append(i)
-            
-            
         if read_out or write_out or xlist_out or time.time() > timeout:
-            print 38, read_out, write_out, xlist_out
             return read_out, write_out, xlist_out
         time.sleep(0.1)
         
